@@ -44,6 +44,7 @@ allowed_warnings = set([
     "alignment.c:327",
     "inet_hashtables.h:283",
     "mmu.c:602",
+    "msm_fb.c:2205",
     "return_address.c:62",
     "swab.h:40",
     "transport.c:586",
