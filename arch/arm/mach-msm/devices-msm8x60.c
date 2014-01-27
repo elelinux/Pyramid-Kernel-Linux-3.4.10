@@ -16,7 +16,7 @@
 #include <linux/regulator/machine.h>
 #include <linux/regulator/consumer.h>
 #include <linux/mfd/pmic8058.h>
-#include <linux/ion.h>
+#include <linux/msm_ion.h>
 #include <mach/irqs.h>
 #include <mach/dma.h>
 #include <asm/mach/mmc.h>
@@ -723,7 +723,7 @@ static struct msm_bus_vectors grp3d_low_vectors[] = {
 		.src = MSM_BUS_MASTER_GRAPHICS_3D,
 		.dst = MSM_BUS_SLAVE_EBI_CH0,
 		.ab = 0,
-		.ib = KGSL_CONVERT_TO_MBPS(990),
+		.ib = KGSL_CONVERT_TO_MBPS(1829),
 	},
 };
 
@@ -732,7 +732,7 @@ static struct msm_bus_vectors grp3d_nominal_low_vectors[] = {
 		.src = MSM_BUS_MASTER_GRAPHICS_3D,
 		.dst = MSM_BUS_SLAVE_EBI_CH0,
 		.ab = 0,
-		.ib = KGSL_CONVERT_TO_MBPS(1300),
+		.ib = KGSL_CONVERT_TO_MBPS(2134),
 	},
 };
 
@@ -741,7 +741,7 @@ static struct msm_bus_vectors grp3d_nominal_high_vectors[] = {
 		.src = MSM_BUS_MASTER_GRAPHICS_3D,
 		.dst = MSM_BUS_SLAVE_EBI_CH0,
 		.ab = 0,
-		.ib = KGSL_CONVERT_TO_MBPS(2008),
+		.ib = KGSL_CONVERT_TO_MBPS(2400),
 	},
 };
 
@@ -750,7 +750,7 @@ static struct msm_bus_vectors grp3d_max_vectors[] = {
 		.src = MSM_BUS_MASTER_GRAPHICS_3D,
 		.dst = MSM_BUS_SLAVE_EBI_CH0,
 		.ab = 0,
-		.ib = KGSL_CONVERT_TO_MBPS(2484),
+		.ib = KGSL_CONVERT_TO_MBPS(2656),
 	},
 };
 
@@ -797,7 +797,7 @@ static struct msm_bus_vectors grp2d0_max_vectors[] = {
 		.src = MSM_BUS_MASTER_GRAPHICS_2D_CORE0,
 		.dst = MSM_BUS_SLAVE_EBI_CH0,
 		.ab = 0,
-		.ib = KGSL_CONVERT_TO_MBPS(990),
+		.ib = KGSL_CONVERT_TO_MBPS(2134),
 	},
 };
 
@@ -832,7 +832,7 @@ static struct msm_bus_vectors grp2d1_max_vectors[] = {
 		.src = MSM_BUS_MASTER_GRAPHICS_2D_CORE1,
 		.dst = MSM_BUS_SLAVE_EBI_CH0,
 		.ab = 0,
-		.ib = KGSL_CONVERT_TO_MBPS(990),
+		.ib = KGSL_CONVERT_TO_MBPS(2134),
 	},
 };
 
@@ -1644,45 +1644,91 @@ struct resource msm_vfe_resources[] = {
 
 static struct resource msm_vpe_resources[] = {
 	{
-		.name   = "vpe",
+		.name   = "msm_vpe",
 		.start	= 0x05300000,
 		.end	= 0x05300000 + SZ_1M - 1,
 		.flags	= IORESOURCE_MEM,
 	},
 	{
-		.name   = "vpe",
+		.name   = "msm_vpe",
 		.start	= INT_VPE,
 		.end	= INT_VPE,
 		.flags	= IORESOURCE_IRQ,
 	},
 };
 
-struct platform_device msm_device_csic0 = {
+static struct msm_cam_clk_info csic_clk_info[] = {
+	{"csi_src_clk", 177780000},
+	{"csi_clk", -1},
+	{"csi_pclk", -1},
+};
+
+static struct msm_cam_clk_info vfe_clk_info[] = {
+	{"vfe_clk", 228570000},
+	{"vfe_pclk", -1},
+	{"csi0_vfe_clk", -1},
+	{"csi1_vfe_clk", -1},
+};
+
+static struct msm_cam_clk_info vpe_clk_info[] = {
+	{"vpe_clk", 160000000},
+	{"vpe_pclk", -1},
+};
+
+struct msm_camera_platform_info csic_info = {
+	.clk_info = csic_clk_info,
+	.num_clks = ARRAY_SIZE(csic_clk_info),
+};
+
+struct msm_camera_platform_info vfe_info = {
+	.clk_info = vfe_clk_info,
+	.num_clks = ARRAY_SIZE(vfe_clk_info),
+};
+
+struct msm_camera_platform_info vpe_info = {
+	.clk_info = vpe_clk_info,
+	.num_clks = ARRAY_SIZE(vpe_clk_info),
+};
+
+
+struct platform_device msm8x60_device_csic0 = {
 	.name           = "msm_csic",
 	.id             = 0,
 	.resource       = msm_csic0_resources,
 	.num_resources  = ARRAY_SIZE(msm_csic0_resources),
+	.dev	= {
+			.platform_data = &csic_info,
+	},
 };
 
-struct platform_device msm_device_csic1 = {
+struct platform_device msm8x60_device_csic1 = {
 	.name           = "msm_csic",
 	.id             = 1,
 	.resource       = msm_csic1_resources,
 	.num_resources  = ARRAY_SIZE(msm_csic1_resources),
+	.dev	= {
+			.platform_data = &csic_info,
+	},
 };
 
-struct platform_device msm_device_vfe = {
+struct platform_device msm8x60_device_vfe = {
 	.name           = "msm_vfe",
 	.id             = 0,
 	.resource       = msm_vfe_resources,
 	.num_resources  = ARRAY_SIZE(msm_vfe_resources),
+	.dev	= {
+			.platform_data = &vfe_info,
+	},
 };
 
-struct platform_device msm_device_vpe = {
+struct platform_device msm8x60_device_vpe = {
 	.name           = "msm_vpe",
 	.id             = 0,
 	.resource       = msm_vpe_resources,
 	.num_resources  = ARRAY_SIZE(msm_vpe_resources),
+	.dev	= {
+			.platform_data = &vpe_info,
+	},
 };
 
 #endif
@@ -1693,7 +1739,7 @@ struct platform_device msm_device_vpe = {
 #define TVENC_HW_BASE		0x04F00000
 #define MDP_HW_BASE		0x05100000
 
-static struct resource msm_mipi_dsi1_resources[] = {
+static struct resource msm_mipi_dsi_resources[] = {
 	{
 		.name   = "mipi_dsi",
 		.start  = MIPI_DSI_HW_BASE,
@@ -1707,11 +1753,11 @@ static struct resource msm_mipi_dsi1_resources[] = {
 	},
 };
 
-struct platform_device msm_mipi_dsi1_device = {
+static struct platform_device msm_mipi_dsi_device = {
 	.name   = "mipi_dsi",
 	.id     = 1,
-	.num_resources  = ARRAY_SIZE(msm_mipi_dsi1_resources),
-	.resource       = msm_mipi_dsi1_resources,
+	.num_resources  = ARRAY_SIZE(msm_mipi_dsi_resources),
+	.resource       = msm_mipi_dsi_resources,
 };
 
 static struct resource msm_mdp_resources[] = {
@@ -2154,7 +2200,7 @@ static void __init msm_register_device(struct platform_device *pdev, void *data)
 			  __func__, ret);
 }
 
-static struct platform_device msm_lcdc_device = {
+struct platform_device msm_lcdc_device = {
 	.name   = "lcdc",
 	.id     = 0,
 };
@@ -2189,7 +2235,7 @@ void __init msm_fb_register_device(char *name, void *data)
 	else if (!strncmp(name, "lcdc", 4))
 		msm_register_device(&msm_lcdc_device, data);
 	else if (!strncmp(name, "mipi_dsi", 8))
-		msm_register_device(&msm_mipi_dsi1_device, data);
+		msm_register_device(&msm_mipi_dsi_device, data);
 #ifdef CONFIG_FB_MSM_TVOUT
 	else if (!strncmp(name, "tvenc", 5))
 		msm_register_device(&msm_tvenc_device, data);

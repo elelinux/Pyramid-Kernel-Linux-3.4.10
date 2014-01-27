@@ -1,5 +1,8 @@
 /* Copyright (c) 2010-2011, Code Aurora Forum. All rights reserved.
+ *
  * Copyright (c) 2013 Sebastian Sobczyk <sebastiansobczyk@wp.pl>
+ * Copyright (c) 2013 bilalliberty <dominos_liberty @ xda-developers>
+ * Copyright (c) 2013 Sultanxda <sultanxda@gmail.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -19,7 +22,7 @@
 #include <mach/gpio.h>
 #include <mach/panel_id.h>
 #include <mach/msm_bus_board.h>
-#include <linux/mfd/pmic8058.h>
+#include <linux/bootmem.h>
 #include <linux/pwm.h>
 #include <linux/pmic8058-pwm.h>
 #include <mach/debug_display.h>
@@ -33,17 +36,18 @@
 #define MSM_FB_PRIM_BUF_SIZE (960 * ALIGN(540, 32) * 4 * 2)
 #endif
 
-#ifdef CONFIG_FB_MSM_HDMI_MSM_PANEL
 #define MSM_FB_SIZE roundup(MSM_FB_PRIM_BUF_SIZE + 0x3F4800, 4096)
-#else 
-#define MSM_FB_SIZE roundup(MSM_FB_PRIM_BUF_SIZE, 4096)
-#endif 
-#define MSM_FB_BASE           0x40400000
 
 #ifdef CONFIG_FB_MSM_OVERLAY0_WRITEBACK
 #define MSM_FB_OVERLAY0_WRITEBACK_SIZE roundup((960 * ALIGN(540, 32) * 3 * 2), 4096)
 #else
 #define MSM_FB_OVERLAY0_WRITEBACK_SIZE (0)
+#endif
+
+#ifdef CONFIG_FB_MSM_OVERLAY1_WRITEBACK
+#define MSM_FB_OVERLAY1_WRITEBACK_SIZE roundup((960 * ALIGN(540, 32) * 3 * 2), 4096)
+#else
+#define MSM_FB_OVERLAY1_WRITEBACK_SIZE (0)
 #endif
 
 #define PANEL_ID_PYD_SHARP	(0x21 | BL_MIPI | IF_MIPI | DEPTH_RGB888)
@@ -82,13 +86,15 @@ static struct platform_device msm_fb_device = {
 
 void __init pyramid_allocate_fb_region(void)
 {
+	void *addr;
 	unsigned long size;
 
 	size = MSM_FB_SIZE;
-	msm_fb_resources[0].start = MSM_FB_BASE;
+	addr = alloc_bootmem_align(size, 0x1000);
+	msm_fb_resources[0].start = __pa(addr);
 	msm_fb_resources[0].end = msm_fb_resources[0].start + size - 1;
-	pr_info("allocating %lu bytes at 0x%p (0x%lx physical) for fb\n",
-		size, __va(MSM_FB_BASE), (unsigned long) MSM_FB_BASE);
+	pr_info("allocating %lu bytes at %p (%lx physical) for fb\n",
+			size, addr, __pa(addr));
 }
 
 #ifdef CONFIG_MSM_BUS_SCALING
@@ -267,7 +273,7 @@ static struct lcdc_platform_data dtv_pdata = {
 };
 #endif
 
-struct mdp_reg pyd_color_v11[] = {
+struct mdp_table_entry pyd_color_v11[] = {
 	{0x93400, 0x0222, 0x0},
 	{0x93404, 0xFFE4, 0x0},
 	{0x93408, 0xFFFD, 0x0},
@@ -292,7 +298,7 @@ struct mdp_reg pyd_color_v11[] = {
 	{0x90070, 0xCD298008, 0x0},
 };
 
-struct mdp_reg pyd_auo_gamma[] = {
+struct mdp_table_entry pyd_auo_gamma[] = {
 	{0x94800, 0x000000, 0x0},
 	{0x94804, 0x010201, 0x0},
 	{0x94808, 0x020202, 0x0},
@@ -552,7 +558,7 @@ struct mdp_reg pyd_auo_gamma[] = {
 	{0x90070, 0x1F, 0x0},
 };
 
-struct mdp_reg pyd_sharp_gamma[] = {
+struct mdp_table_entry pyd_sharp_gamma[] = {
 	{0x94800, 0x000000, 0x0},
 	{0x94804, 0x010101, 0x0},
 	{0x94808, 0x020202, 0x0},
@@ -820,161 +826,69 @@ int pyramid_mdp_gamma(void)
 		mdp_color_enhancement(pyd_sharp_gamma, ARRAY_SIZE(pyd_sharp_gamma));
 	else if (panel_type == PANEL_ID_PYD_AUO_NT)
 		mdp_color_enhancement(pyd_auo_gamma, ARRAY_SIZE(pyd_auo_gamma));
-	
+
 	return 0;
 }
 
 static struct msm_panel_common_pdata mdp_pdata = {
 	.gpio = GPIO_LCD_TE,
+	.mdp_max_clk = 200000000,
+	.mdp_max_bw = 2000000000,
+	.mdp_bw_ab_factor = 115,
+	.mdp_bw_ib_factor = 150,
 #ifdef CONFIG_MSM_BUS_SCALING
 	.mdp_bus_scale_table = &mdp_bus_scale_pdata,
 #endif
 	.mdp_rev = MDP_REV_41,
 	.mem_hid = BIT(ION_CP_WB_HEAP_ID),
+	.cont_splash_enabled = 0x00,
+	.splash_screen_addr = 0x00,
+	.splash_screen_size = 0x00,
 	.mdp_iommu_split_domain = 0,
-	.mdp_max_clk = 200000000,
 	.mdp_gamma = pyramid_mdp_gamma,
 };
 
-void __init pyramid_mdp_writeback(void)
+void __init pyramid_mdp_writeback(struct memtype_reserve* reserve_table)
 {
 	mdp_pdata.ov0_wb_size = MSM_FB_OVERLAY0_WRITEBACK_SIZE;
+	mdp_pdata.ov1_wb_size = MSM_FB_OVERLAY1_WRITEBACK_SIZE;
 }
 
-static int first_init = 1;
-
-static int mipi_dsi_panel_power(const int on)
+#ifdef CONFIG_FB_MSM_WRITEBACK_MSM_PANEL
+static char wfd_check_mdp_iommu_split_domain(void)
 {
-	static bool dsi_power_on = false;
-	static struct regulator *l1_3v;
-	static struct regulator *lvs1_1v8;
-	static struct regulator *l4_1v8;
-	int rc;
+	return mdp_pdata.mdp_iommu_split_domain;
+}
 
-	if (!dsi_power_on) {
-		l1_3v = regulator_get(NULL, "8901_l1");
-		if (IS_ERR_OR_NULL(l1_3v)) {
-			PR_DISP_ERR("%s: unable to get 8901_l1\n", __func__);
-			return -ENODEV;
-		}
-		if (system_rev >= 1) {
-			l4_1v8 = regulator_get(NULL, "8901_l4");
-			if (IS_ERR_OR_NULL(l4_1v8)) {
-				PR_DISP_ERR("%s: unable to get 8901_l4\n", __func__);
-				return -ENODEV;
-			}
-		} else {
-			lvs1_1v8 = regulator_get(NULL, "8901_lvs1");
-			if (IS_ERR_OR_NULL(lvs1_1v8)) {
-				PR_DISP_ERR("%s: unable to get 8901_lvs1\n", __func__);
-				return -ENODEV;
-			}
-		}
+static struct msm_wfd_platform_data wfd_pdata = {
+	.wfd_check_mdp_iommu_split = wfd_check_mdp_iommu_split_domain,
+};
 
-		rc = regulator_set_voltage(l1_3v, 3100000, 3100000);
-		if (rc) {
-			PR_DISP_ERR("%s: error setting l1_3v voltage\n", __func__);
-			return -EINVAL;
-		}
+static struct platform_device wfd_panel_device = {
+	.name = "wfd_panel",
+	.id = 0,
+	.dev.platform_data = NULL,
+};
 
-		if (system_rev >= 1) {
-			rc = regulator_set_voltage(l4_1v8, 1800000, 1800000);
-			if (rc) {
-				PR_DISP_ERR("%s: error setting l4_1v8 voltage\n", __func__);
-				return -EINVAL;
-			}
-		}
+static struct platform_device wfd_device = {
+	.name          = "msm_wfd",
+	.id            = -1,
+	.dev.platform_data = &wfd_pdata,
+};
+#endif
 
-		rc = gpio_request(GPIO_LCM_RST_N,
-				"LCM_RST_N");
-		if (rc) {
-			printk(KERN_ERR "%s:LCM gpio %d request"
-					"failed\n", __func__,
-					GPIO_LCM_RST_N);
-			return -EINVAL;
-		}
+/*
+ * Regulator initialization moved to mipi_dsi
+ */
 
-		dsi_power_on = true;
-	}
-
-	if (!l1_3v || IS_ERR(l1_3v)) {
-		PR_DISP_ERR("%s: l1_3v is not initialized\n", __func__);
-		return -ENODEV;
-	}
-
-	if (system_rev >= 1) {
-		if (!l4_1v8 || IS_ERR(l4_1v8)) {
-			PR_DISP_ERR("%s: l4_1v8 is not initialized\n", __func__);
-			return -ENODEV;
-		}
-	} else {
-		if (!lvs1_1v8 || IS_ERR(lvs1_1v8)) {
-			PR_DISP_ERR("%s: lvs1_1v8 is not initialized\n", __func__);
-			return -ENODEV;
-		}
-	}
-
-	if (on) {
-		if (regulator_enable(l1_3v)) {
-			PR_DISP_ERR("%s: Unable to enable the regulator:"
-					" l1_3v\n", __func__);
-			return -ENODEV;
-		}
-		hr_msleep(5);
-
-		if (system_rev >= 1) {
-			if (regulator_enable(l4_1v8)) {
-				PR_DISP_ERR("%s: Unable to enable the regulator:"
-						" l4_1v8\n", __func__);
-				return -ENODEV;
-			}
-		} else {
-			if (regulator_enable(lvs1_1v8)) {
-				PR_DISP_ERR("%s: Unable to enable the regulator:"
-						" lvs1_1v8\n", __func__);
-				return -ENODEV;
-			}
-		}
-
-		if (!first_init) {
-			hr_msleep(10);
-			gpio_set_value(GPIO_LCM_RST_N, 1);
-			hr_msleep(1);
-			gpio_set_value(GPIO_LCM_RST_N, 0);
-			hr_msleep(1);
-			gpio_set_value(GPIO_LCM_RST_N, 1);
-			hr_msleep(20);
-		}
-	} else {
-		gpio_set_value(GPIO_LCM_RST_N, 0);
-		hr_msleep(5);
-		if (system_rev >= 1) {
-			if (regulator_disable(l4_1v8)) {
-				PR_DISP_ERR("%s: Unable to enable the regulator:"
-						" l4_1v8\n", __func__);
-				return -ENODEV;
-			}
-		} else {
-			if (regulator_disable(lvs1_1v8)) {
-				PR_DISP_ERR("%s: Unable to enable the regulator:"
-						" lvs1_1v8\n", __func__);
-				return -ENODEV;
-			}
-		}
-		hr_msleep(5);
-		if (regulator_disable(l1_3v)) {
-			PR_DISP_ERR("%s: Unable to enable the regulator:"
-					" l1_3v\n", __func__);
-			return -ENODEV;
-		}
-	}
-
-	return 0;
+static char mipi_dsi_splash_is_enabled(void)
+{
+       return mdp_pdata.cont_splash_enabled;
 }
 
 static struct mipi_dsi_platform_data mipi_dsi_pdata = {
 	.vsync_gpio = GPIO_LCD_TE,
-	.dsi_power_save = mipi_dsi_panel_power,
+	.splash_is_enabled = mipi_dsi_splash_is_enabled,
 };
 
 static struct dsi_buf panel_tx_buf;
@@ -1201,6 +1115,8 @@ static struct dsi_cmd_desc pyd_sharp_cmd_on_cmds[] = {
 		sizeof(rgb_888), rgb_888},
 	{DTYPE_DCS_WRITE1, 1, 0, 0, 0,
 		sizeof(bkl_enable_cmds), bkl_enable_cmds},
+        {DTYPE_DCS_WRITE, 1, 0, 0, 0,
+		sizeof(display_on), display_on},
 };
 
 static char pyd_auo_gm[] = {
@@ -1388,6 +1304,8 @@ static struct dsi_cmd_desc pyd_auo_cmd_on_cmds[] = {
 		sizeof(set_height), set_height},
 	{DTYPE_DCS_WRITE1, 1, 0, 0, 0,
 		sizeof(bkl_enable_cmds), bkl_enable_cmds},
+		{DTYPE_DCS_WRITE, 1, 0, 0, 0,
+		sizeof(display_on), display_on},
 };
 
 static struct dsi_cmd_desc novatek_display_off_cmds[] = {
@@ -1402,17 +1320,12 @@ static struct dsi_cmd_desc novatek_cmd_backlight_cmds[] = {
 		sizeof(led_pwm1), led_pwm1},
 };
 
-static struct dsi_cmd_desc novatek_display_on_cmds[] = {
-	{DTYPE_DCS_WRITE, 1, 0, 0, 0,
-		sizeof(display_on), display_on},
-};
-
+static int mipi_lcd_on = 1;
 static struct dcs_cmd_req cmdreq;
 
 static int pyramid_lcd_on(struct platform_device *pdev)
 {
 	struct msm_fb_data_type *mfd;
-	struct mipi_panel_info *mipi;
 
 	mfd = platform_get_drvdata(pdev);
 	if (!mfd)
@@ -1420,67 +1333,81 @@ static int pyramid_lcd_on(struct platform_device *pdev)
 	if (mfd->key != MFD_KEY)
 		return -EINVAL;
 
-	mipi = &mfd->panel_info.mipi;
+	if (mipi_lcd_on)
+		return 0;
 
-	if (!first_init) {
-		if (mipi->mode == DSI_CMD_MODE) {
-			if (panel_type == PANEL_ID_PYD_SHARP) {
-				cmdreq.cmds = pyd_sharp_cmd_on_cmds;
-				cmdreq.cmds_cnt = ARRAY_SIZE(pyd_sharp_cmd_on_cmds);
-				cmdreq.flags = CMD_REQ_COMMIT;
-				cmdreq.rlen = 0;
-				cmdreq.cb = NULL;
+	switch (panel_type) {
+		case PANEL_ID_PYD_SHARP:
+			printk(KERN_INFO "pyramid_lcd_on PANEL_ID_PYD_SHARP\n");
+			cmdreq.cmds = pyd_sharp_cmd_on_cmds;
+			cmdreq.cmds_cnt = ARRAY_SIZE(pyd_sharp_cmd_on_cmds);
+			cmdreq.flags = CMD_REQ_COMMIT;
+			cmdreq.rlen = 0;
+			cmdreq.cb = NULL;
 
-				mipi_dsi_cmdlist_put(&cmdreq);
-			}
-			else if (panel_type == PANEL_ID_PYD_AUO_NT) {
-				cmdreq.cmds = pyd_auo_cmd_on_cmds;
-				cmdreq.cmds_cnt = ARRAY_SIZE(pyd_auo_cmd_on_cmds);
-				cmdreq.flags = CMD_REQ_COMMIT;
-				cmdreq.rlen = 0;
-				cmdreq.cb = NULL;
+			mipi_dsi_cmdlist_put(&cmdreq);
+			break;
+		case PANEL_ID_PYD_AUO_NT:
+			printk(KERN_INFO "pyramid_lcd_on PANEL_ID_PYD_AUO_NT\n");
+			cmdreq.cmds = pyd_auo_cmd_on_cmds;
+			cmdreq.cmds_cnt = ARRAY_SIZE(pyd_auo_cmd_on_cmds);
+			cmdreq.flags = CMD_REQ_COMMIT;
+			cmdreq.rlen = 0;
+			cmdreq.cb = NULL;
 
-				mipi_dsi_cmdlist_put(&cmdreq);
-			}
-		}
+			mipi_dsi_cmdlist_put(&cmdreq);
+			break;
+		default:
+			PR_DISP_ERR("%s: panel_type is not supported!(%d)\n", __func__, panel_type);
+			break;
 	}
-	first_init = 0;
+
+	mipi_lcd_on = 1;
 
 	return 0;
 }
 
-static void pyramid_display_on(struct msm_fb_data_type *mfd)
-{
-	cmdreq.cmds = novatek_display_on_cmds;
-	cmdreq.cmds_cnt = ARRAY_SIZE(novatek_display_on_cmds);
-	cmdreq.flags = CMD_REQ_COMMIT;
-	cmdreq.rlen = 0;
-	cmdreq.cb = NULL;
-
-	mipi_dsi_cmdlist_put(&cmdreq);
-}
-
-static void pyramid_display_off(struct msm_fb_data_type *mfd)
-{
-	cmdreq.cmds = novatek_display_off_cmds;
-	cmdreq.cmds_cnt = ARRAY_SIZE(novatek_display_off_cmds);
-	cmdreq.flags = CMD_REQ_COMMIT;
-	cmdreq.rlen = 0;
-	cmdreq.cb = NULL;
-
-	mipi_dsi_cmdlist_put(&cmdreq);
+static int pyramid_early_off(struct platform_device *pdev)
+ {
+   return 0;
 }
 
 static int pyramid_lcd_off(struct platform_device *pdev)
 {
 	struct msm_fb_data_type *mfd;
-
+	
 	mfd = platform_get_drvdata(pdev);
 
 	if (!mfd)
 		return -ENODEV;
 	if (mfd->key != MFD_KEY)
 		return -EINVAL;
+
+	if (!mipi_lcd_on)
+		return 0;
+
+	switch (panel_type) {
+		case PANEL_ID_PYD_SHARP:
+			cmdreq.cmds = novatek_display_off_cmds;
+			cmdreq.cmds_cnt = ARRAY_SIZE(novatek_display_off_cmds);
+			cmdreq.flags = CMD_REQ_COMMIT;
+			cmdreq.rlen = 0;
+			cmdreq.cb = NULL;
+
+			mipi_dsi_cmdlist_put(&cmdreq);
+			break;
+		case PANEL_ID_PYD_AUO_NT:
+			cmdreq.cmds = novatek_display_off_cmds;
+			cmdreq.cmds_cnt = ARRAY_SIZE(novatek_display_off_cmds);
+			cmdreq.flags = CMD_REQ_COMMIT;
+			cmdreq.rlen = 0;
+			cmdreq.cb = NULL;
+
+			mipi_dsi_cmdlist_put(&cmdreq);
+			break;
+	}
+
+	mipi_lcd_on = 0;
 
 	return 0;
 }
@@ -1576,16 +1503,15 @@ static struct platform_driver this_driver = {
 	},
 };
 
-struct msm_fb_panel_data pyramid_panel_data = {
-	.on			= pyramid_lcd_on,
-	.off		= pyramid_lcd_off,
+static struct msm_fb_panel_data pyramid_panel_data = {
+	.on	       = pyramid_lcd_on,
+	.off	       = pyramid_lcd_off,
 	.set_backlight = pyramid_set_backlight,
-	.display_on = pyramid_display_on,
-	.display_off = pyramid_display_off,
+	.early_off  = 	 pyramid_early_off,
 };
 
 static struct msm_panel_info pinfo;
-static int ch_used[3] = {0, 0, 0};
+static int ch_used[3];
 
 static int mipi_pyramid_device_register(const char* dev_name, struct msm_panel_info *pinfo,
 					u32 channel, u32 panel)
@@ -1598,7 +1524,7 @@ static int mipi_pyramid_device_register(const char* dev_name, struct msm_panel_i
 
 	ch_used[channel] = TRUE;
 
-	pdev = platform_device_alloc(dev_name, (panel << 8)|channel);
+	pdev = platform_device_alloc("mipi_novatek", (panel << 8)|channel);
 	if (!pdev)
 		return -ENOMEM;
 
@@ -1616,6 +1542,7 @@ static int mipi_pyramid_device_register(const char* dev_name, struct msm_panel_i
 		PR_DISP_ERR("%s: platform_device_register failed!\n", __func__);
 		goto err_device_put;
 	}
+
 	return 0;
 
 err_device_put:
@@ -1624,13 +1551,14 @@ err_device_put:
 }
 
 static struct mipi_dsi_phy_ctrl dsi_cmd_mode_phy_db = {
-	{0x03, 0x01, 0x01, 0x00},
-	{0x96, 0x1E, 0x1E, 0x00, 0x3C, 0x3C, 0x1E, 0x28, 0x0b, 0x13, 0x04},
-	{0x7f, 0x00, 0x00, 0x00},
-	{0xee, 0x02, 0x86, 0x00},
-	{0x41, 0x9c, 0xb9, 0xd6, 0x00, 0x50, 0x48, 0x63, 0x01, 0x0f, 0x07,
-	0x05, 0x14, 0x03, 0x03, 0x03, 0x54, 0x06, 0x10, 0x04, 0x03 },
+       {0x03, 0x01, 0x01, 0x00},
+       {0x96, 0x1E, 0x1E, 0x00, 0x3C, 0x3C, 0x1E, 0x28, 0x0b, 0x13, 0x04},
+       {0x7f, 0x00, 0x00, 0x00},
+       {0xee, 0x02, 0x86, 0x00},
+       {0x41, 0x9c, 0xb9, 0xd6, 0x00, 0x50, 0x48, 0x63, 0x01, 0x0f, 0x07,
+        0x05, 0x14, 0x03, 0x03, 0x03, 0x54, 0x06, 0x10, 0x04, 0x03},
 };
+
 
 static int __init mipi_cmd_novatek_blue_qhd_pt_init(void)
 {
@@ -1642,37 +1570,46 @@ static int __init mipi_cmd_novatek_blue_qhd_pt_init(void)
 	pinfo.pdest = DISPLAY_1;
 	pinfo.wait_cycle = 0;
 	pinfo.bpp = 24;
-	pinfo.width = 53;
-	pinfo.height = 95;
 	pinfo.lcdc.h_back_porch = 64;
 	pinfo.lcdc.h_front_porch = 96;
 	pinfo.lcdc.h_pulse_width = 32;
 	pinfo.lcdc.v_back_porch = 16;
 	pinfo.lcdc.v_front_porch = 16;
 	pinfo.lcdc.v_pulse_width = 4;
+
+        pinfo.lcd.primary_vsync_init = pinfo.yres;
+        pinfo.lcd.primary_rdptr_irq = 0;
+        pinfo.lcd.primary_start_pos = pinfo.yres +
+               pinfo.lcd.v_back_porch + pinfo.lcd.v_front_porch - 1;
+/*
+	pinfo.lcd.v_back_porch = 16;
+	pinfo.lcd.v_front_porch = 16;
+	pinfo.lcd.v_pulse_width = 4;
+*/
 	pinfo.lcdc.border_clr = 0;
 	pinfo.lcdc.underflow_clr = 0xff;
 	pinfo.lcdc.hsync_skew = 0;
 	pinfo.bl_max = 255;
 	pinfo.bl_min = 1;
 	pinfo.fb_num = 2;
-	pinfo.clk_rate = 482000000;
+/*	pinfo.clk_rate = 482000000;
+	pinfo.clk_rate = 454000000;
+*/
 	pinfo.lcd.vsync_enable = TRUE;
 	pinfo.lcd.hw_vsync_mode = TRUE;
-	pinfo.lcd.refx100 = 6096;
-	pinfo.lcd.v_back_porch = 16;
-	pinfo.lcd.v_front_porch = 16;
-	pinfo.lcd.v_pulse_width = 4;
+	pinfo.lcd.refx100 = 6200;
+	pinfo.mipi.frame_rate = 60;
 	pinfo.mipi.mode = DSI_CMD_MODE;
 	pinfo.mipi.dst_format = DSI_CMD_DST_FORMAT_RGB888;
 	pinfo.mipi.vc = 0;
 	pinfo.mipi.rgb_swap = DSI_RGB_SWAP_BGR;
+	pinfo.mipi.esc_byte_ratio = 4;
 	pinfo.mipi.data_lane0 = TRUE;
 	pinfo.mipi.data_lane1 = TRUE;
 	pinfo.mipi.t_clk_post = 0x0a;
 	pinfo.mipi.t_clk_pre = 0x1e;
 	pinfo.mipi.stream = 0;
-	pinfo.mipi.mdp_trigger = DSI_CMD_TRIGGER_SW;
+	pinfo.mipi.mdp_trigger = DSI_CMD_TRIGGER_NONE;
 	pinfo.mipi.dma_trigger = DSI_CMD_TRIGGER_SW;
 	pinfo.mipi.te_sel = 1;
 	pinfo.mipi.interleave_max = 1;
@@ -1692,8 +1629,13 @@ static int __init mipi_cmd_novatek_blue_qhd_pt_init(void)
 void __init pyramid_init_fb(void)
 {
 	platform_device_register(&msm_fb_device);
+
+#ifdef CONFIG_FB_MSM_WRITEBACK_MSM_PANEL
+	platform_device_register(&wfd_panel_device);
+	platform_device_register(&wfd_device);
+#endif
 	
-	if(panel_type != PANEL_ID_NONE) {
+	if (panel_type != PANEL_ID_NONE) {
 		msm_fb_register_device("mdp", &mdp_pdata);
 		msm_fb_register_device("mipi_dsi", &mipi_dsi_pdata);
 	}
@@ -1706,17 +1648,18 @@ static int __init pyramid_panel_init(void)
 	mipi_dsi_buf_alloc(&panel_tx_buf, DSI_BUF_SIZE);
 	mipi_dsi_buf_alloc(&panel_rx_buf, DSI_BUF_SIZE);
 
-	if (panel_type == PANEL_ID_PYD_SHARP) {
-		PR_DISP_INFO("%s: panel ID = PANEL_ID_PYD_SHARP\n", __func__);
-		mipi_cmd_novatek_blue_qhd_pt_init();
-	} 
-	else if (panel_type == PANEL_ID_PYD_AUO_NT) {
-		PR_DISP_INFO("%s: panel ID = PANEL_ID_PYD_AUO_NT\n", __func__);
-		mipi_cmd_novatek_blue_qhd_pt_init();
-	} 
-	else {
-		PR_DISP_ERR("%s: panel not supported!\n", __func__);
-		return -ENODEV;
+	switch (panel_type) {
+		case PANEL_ID_PYD_SHARP:
+			PR_DISP_INFO("%s: panel ID = PANEL_ID_PYD_SHARP\n", __func__);
+			mipi_cmd_novatek_blue_qhd_pt_init();
+			break;
+		case PANEL_ID_PYD_AUO_NT:
+			PR_DISP_INFO("%s: panel ID = PANEL_ID_PYD_AUO_NT\n", __func__);
+			mipi_cmd_novatek_blue_qhd_pt_init();
+			break;
+		default:
+			PR_DISP_ERR("%s: panel not supported!\n", __func__);
+			return -ENODEV;
 	}
 
 	return platform_driver_register(&this_driver);

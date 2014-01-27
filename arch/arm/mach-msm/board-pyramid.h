@@ -1,6 +1,8 @@
 /* Copyright (C) 2010-2011 HTC Corporation.
  * Copyright (c) 2013 Sebastian Sobczyk <sebastiansobczyk@wp.pl>
  *
+ * Copyright (c) 2014 Sultanxda <sultanxda@gmail.com>
+ *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
  * may be copied, distributed, and modified under those terms.
@@ -15,6 +17,32 @@
 #define __ARCH_ARM_MACH_MSM_BOARD_PYRAMID_H
 
 #include <mach/board.h>
+#include <mach/msm_memtypes.h>
+
+/*** Memory map ***/
+#define MSM_SMI_BASE         0x38000000
+#define MSM_SMI_SIZE         0x4000000
+
+#define PHY_BASE_ADDR1       0x48000000
+#define SIZE_ADDR1           0x28000000
+
+#define MSM_ION_MM_FW_SIZE   0x200000
+#define MSM_ION_MM_SIZE      0x3D00000
+#define MSM_ION_MFC_SIZE     0x100000
+#define MSM_ION_SF_SIZE      0x2A00000
+#define MSM_ION_WB_SIZE      0x2FD000
+#define MSM_ION_CAMERA_SIZE  0x2A00000
+#define MSM_ION_AUDIO_SIZE   0x4CF000
+
+#define MSM_ION_HEAP_NUM     8
+
+#define MSM_ION_MM_FW_BASE   0x38000000
+#define MSM_ION_MM_BASE      0x38200000
+#define MSM_ION_MFC_BASE     0x3BF00000
+#define MSM_ION_CAMERA_BASE  0x40400000
+#define MSM_ION_WB_BASE      0x46400000
+#define MSM_ION_SF_BASE      0x49800000
+/*** END Memory map ***/
 
 #define MSM_RAM_CONSOLE_BASE	MSM_HTC_RAM_CONSOLE_PHYS
 #define MSM_RAM_CONSOLE_SIZE	MSM_HTC_RAM_CONSOLE_SIZE
@@ -108,6 +136,6 @@ int __init pyramid_wifi_init(void);
 
 void pyramid_init_fb(void);
 void pyramid_allocate_fb_region(void);
-void pyramid_mdp_writeback(void);
+void __init pyramid_mdp_writeback(struct memtype_reserve* reserve_table);
 
 #endif 
