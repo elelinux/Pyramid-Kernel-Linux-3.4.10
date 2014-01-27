@@ -40,6 +40,7 @@ import subprocess
 # force LANG to be set to en_US.UTF-8 to get consistent warnings.
 
 allowed_warnings = set([
+    "audio_utils_aio.c:1160",
     "alignment.c:327",
     "inet_hashtables.h:283",
     "mmu.c:602",
