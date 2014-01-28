@@ -135,6 +135,10 @@ static const u32 tuning_block_128[] = {
 	0xFFFFBBBB, 0xFFFF77FF, 0xFF7777FF, 0xEEDDBB77
 };
 
+#ifdef CONFIG_WIMAX
+#define SDC_CLK_VERBOSE 1
+#endif
+
 #if IRQ_DEBUG == 1
 static char *irq_status_bits[] = { "cmdcrcfail", "datcrcfail", "cmdtimeout",
 				   "dattimeout", "txunderrun", "rxoverrun",
@@ -4413,7 +4417,7 @@ static void msmsdcc_late_resume(struct early_suspend *h)
 
 #ifdef CONFIG_WIMAX
 	if (is_wifi_platform(host->plat))
-		pr_infof"[WIFI] [MMC] %s: %s enter\n", mmc_hostname(host->mmc), __func__);
+		pr_info("[WIFI] [MMC] %s: %s enter\n", mmc_hostname(host->mmc), __func__);
 #endif
 
 	if (host->polling_enabled) {

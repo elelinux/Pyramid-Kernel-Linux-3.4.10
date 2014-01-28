@@ -96,7 +96,7 @@
 #ifdef CONFIG_FB_MSM_HDMI_MHL
 #include <mach/mhl.h>
 #endif
-
+#include <linux/msm_tsens.h>
 #include "board-pyramid.h"
 #include "devices.h"
 #include "devices-msm8x60.h"
@@ -124,7 +124,7 @@
 #include <mach/perflock.h>
 #endif
 
-#include <mach/tpa2051d3.h>
+#include <linux/tpa2051d3.h>
 #include <linux/cy8c_tma_ts.h>
 #include <linux/isl29028.h>
 #include <linux/isl29029.h>
@@ -139,6 +139,12 @@ int set_two_phase_freq(int cpufreq);
 
 #define MSM_SHARED_RAM_PHYS 0x40000000
 
+#define PM8901_GPIO_BASE			(PM8058_GPIO_BASE + \
+						PM8058_GPIOS + PM8058_MPPS)
+#define PM8901_GPIO_PM_TO_SYS(pm_gpio)		(pm_gpio + PM8901_GPIO_BASE)
+#define PM8901_GPIO_SYS_TO_PM(sys_gpio)		(sys_gpio - PM901_GPIO_BASE)
+#define PM8901_IRQ_BASE				(PM8058_IRQ_BASE + \
+						NR_PMIC8058_IRQS)
 enum {
 	GPIO_EXPANDER_IRQ_BASE  = PM8901_IRQ_BASE + NR_PMIC8901_IRQS,
 	GPIO_EXPANDER_GPIO_BASE = PM8901_GPIO_BASE + PM8901_MPPS,
@@ -2165,7 +2171,7 @@ static struct rpm_regulator_init_data rpm_regulator_init_data[] = {
 
 	/*	ID        a_on pd ss min_uV   max_uV   init_ip */
 	RPM_LDO(PM8901_L0,  0, 1, 0, 1200000, 1200000, LDO300HMIN),
-	RPM_LDO(PM8901_L1,  0, 1, 0, 3100000, 3100000, LDO300HMIN),
+	RPM_LDO(PM8901_L1,  0, 1, 0, 2400000, 3100000, LDO300HMIN),
 	RPM_LDO(PM8901_L2,  0, 0, 0, 2850000, 3300000, LDO300HMIN),
 	RPM_LDO(PM8901_L3,  0, 1, 0, 3300000, 3300000, LDO300HMIN),
 	RPM_LDO(PM8901_L4,  0, 1, 0, 1800000, 1800000, LDO300HMIN),
@@ -2270,10 +2276,19 @@ static struct platform_device *early_devices[] __initdata = {
 #endif
 };
 
+static struct tsens_platform_data pyr_tsens_pdata  = {
+		.tsens_factor		= 1000,
+		.hw_type		= MSM_8660,
+		.tsens_num_sensor	= 6,
+		.slope 			= 702,
+};
+
+/*
 static struct platform_device msm_tsens_device = {
 	.name   = "tsens-tm",
 	.id = -1,
 };
+*/
 
 #ifdef CONFIG_SENSORS_MSM_ADC
 static struct adc_access_fn xoadc_fn = {
@@ -2610,7 +2625,7 @@ static struct platform_device *pyramid_devices[] __initdata = {
 #ifdef CONFIG_LEDS_PM8058
 	&pm8058_leds,
 #endif
-	&msm_tsens_device,
+//	&msm_tsens_device,
 	&cable_detect_device,
 	&msm8660_rpm_device,
 #ifdef CONFIG_ION_MSM
@@ -2641,6 +2656,11 @@ static struct ion_cp_heap_pdata cp_mm_ion_pdata = {
 	.setup_region = setup_smi_region,
 };
 
+static struct ion_cp_heap_pdata cp_mfc_ion_pdata = {
+	.permission_type = IPT_TYPE_MFC_SHAREDMEM,
+	.align = PAGE_SIZE,
+};
+
 static struct ion_cp_heap_pdata cp_wb_ion_pdata = {
 	.permission_type = IPT_TYPE_MDP_WRITEBACK,
 	.align = PAGE_SIZE,
@@ -2663,21 +2683,12 @@ struct ion_platform_heap msm8660_heaps[] = {
 			.name	= ION_VMALLOC_HEAP_NAME,
 		},
 		{
-			.id	= 	ION_SF_HEAP_ID,
-			.type	= ION_HEAP_TYPE_CARVEOUT,
-			.name	= ION_SF_HEAP_NAME,
-			.size	= MSM_ION_SF_SIZE,
-			.base	= MSM_ION_SF_BASE,
-			.memory_type = ION_SMI_TYPE,
-			.extra_data = &co_sf_ion_pdata,
-		},
-		{
 			.id	= ION_CP_MM_HEAP_ID,
 			.type	= ION_HEAP_TYPE_CP,
 			.name	= ION_MM_HEAP_NAME,
 			.size	= MSM_ION_MM_SIZE,
 			.base	= MSM_ION_MM_BASE,
-			.memory_type = ION_EBI_TYPE,
+			.memory_type = ION_SMI_TYPE,
 			.extra_data = &cp_mm_ion_pdata,
 		},
 		{
@@ -2686,8 +2697,26 @@ struct ion_platform_heap msm8660_heaps[] = {
 			.name	= ION_MM_FIRMWARE_HEAP_NAME,
 			.size	= MSM_ION_MM_FW_SIZE,
 			.base	= MSM_ION_MM_FW_BASE,
-			.memory_type = ION_EBI_TYPE,
+			.memory_type = ION_SMI_TYPE,
 			.extra_data = &co_mm_fw_ion_pdata,
+		},
+		{
+			.id	= ION_CP_MFC_HEAP_ID,
+			.type	= ION_HEAP_TYPE_CP,
+			.name	= ION_MFC_HEAP_NAME,
+			.size	= MSM_ION_MFC_SIZE,
+			.base	= MSM_ION_MFC_BASE,
+			.memory_type = ION_SMI_TYPE,
+			.extra_data = &cp_mfc_ion_pdata,
+		},
+		{
+			.id	= ION_SF_HEAP_ID,
+			.type	= ION_HEAP_TYPE_CARVEOUT,
+			.name	= ION_SF_HEAP_NAME,
+			.size	= MSM_ION_SF_SIZE,
+			.base	= MSM_ION_SF_BASE,
+			.memory_type = ION_EBI_TYPE,
+			.extra_data = &co_sf_ion_pdata,
 		},
 		{
 			.id	= ION_CAMERA_HEAP_ID,
@@ -2712,7 +2741,6 @@ struct ion_platform_heap msm8660_heaps[] = {
 			.type	= ION_HEAP_TYPE_CARVEOUT,
 			.name	= ION_AUDIO_HEAP_NAME,
 			.size	= MSM_ION_AUDIO_SIZE,
-			.base   = MSM_ION_AUDIO_BASE,
 			.memory_type = ION_EBI_TYPE,
 			.extra_data = &co_ion_pdata,
 		},
@@ -2744,6 +2772,31 @@ static struct memtype_reserve msm8x60_reserve_table[] __initdata = {
 	},
 };
 
+static void __init reserve_ion_memory(void)
+{
+#ifdef CONFIG_ION_MSM
+	unsigned int i;
+	int ret;
+
+	ret = memblock_remove(MSM_ION_SF_BASE, MSM_ION_SF_SIZE);
+	BUG_ON(ret);
+
+	for (i = 0; i < ion_pdata.nr; ++i) {
+		struct ion_platform_heap *heap = &(ion_pdata.heaps[i]);
+		if(heap->base == 0) {
+			switch(heap->memory_type) {
+			case ION_SMI_TYPE:
+				msm8x60_reserve_table[MEMTYPE_SMI].size += heap->size;
+				break;
+			case ION_EBI_TYPE:
+				msm8x60_reserve_table[MEMTYPE_EBI1].size += heap->size;
+				break;
+			}
+		}
+	}
+#endif
+}
+
 static void __init reserve_mdp_memory(void)
 {
 	pyramid_mdp_writeback(msm8x60_reserve_table);
@@ -2751,6 +2804,7 @@ static void __init reserve_mdp_memory(void)
 
 static void __init msm8x60_calculate_reserve_sizes(void)
 {
+	reserve_ion_memory();
 	reserve_mdp_memory();
 }
 
@@ -3247,17 +3301,42 @@ static struct spi_board_info msm_spi_board_info[] __initdata = {
 #ifdef CONFIG_PMIC8901
 
 #define PM8901_GPIO_INT           91
+
+static struct pm8901_gpio_platform_data pm8901_mpp_data = {
+	.gpio_base	= PM8901_GPIO_PM_TO_SYS(0),
+	.irq_base	= PM8901_MPP_IRQ(PM8901_IRQ_BASE, 0),
+};
+
+static struct resource pm8901_temp_alarm[] = {
+	{
+		.start = PM8901_TEMP_ALARM_IRQ(PM8901_IRQ_BASE),
+		.end = PM8901_TEMP_ALARM_IRQ(PM8901_IRQ_BASE),
+		.flags = IORESOURCE_IRQ,
+	},
+	{
+		.start = PM8901_TEMP_HI_ALARM_IRQ(PM8901_IRQ_BASE),
+		.end = PM8901_TEMP_HI_ALARM_IRQ(PM8901_IRQ_BASE),
+		.flags = IORESOURCE_IRQ,
+	},
+};
+
+/*
+ * Consumer specific regulator names:
+ *			 regulator name		consumer dev_name
+ */
+static struct regulator_consumer_supply vreg_consumers_8901_MPP0[] = {
+	REGULATOR_SUPPLY("8901_mpp0",		NULL),
+};
 static struct regulator_consumer_supply vreg_consumers_8901_USB_OTG[] = {
 	REGULATOR_SUPPLY("8901_usb_otg",	NULL),
 };
-
 static struct regulator_consumer_supply vreg_consumers_8901_HDMI_MVS[] = {
 	REGULATOR_SUPPLY("8901_hdmi_mvs",	NULL),
 };
 
 #define PM8901_VREG_INIT(_id, _min_uV, _max_uV, _modes, _ops, _apply_uV, \
-			 _always_on, _pd) \
-	{ \
+			 _always_on, _active_high) \
+	[PM8901_VREG_ID_##_id] = { \
 		.init_data = { \
 			.constraints = { \
 				.valid_modes_mask = _modes, \
@@ -3272,51 +3351,80 @@ static struct regulator_consumer_supply vreg_consumers_8901_HDMI_MVS[] = {
 			.num_consumer_supplies = \
 				ARRAY_SIZE(vreg_consumers_8901_##_id), \
 		}, \
-		.id = PM8901_VREG_ID_##_id, \
-		.pull_down_enable = _pd, \
+		.active_high = _active_high, \
 	}
 
-#define PM8901_VREG_INIT_VS(_id, _pd) \
+#define PM8901_VREG_INIT_MPP(_id, _active_high) \
 	PM8901_VREG_INIT(_id, 0, 0, REGULATOR_MODE_NORMAL, \
-			REGULATOR_CHANGE_STATUS, 0, 0, _pd)
+			REGULATOR_CHANGE_STATUS, 0, 0, _active_high)
 
-static struct pm8901_vreg_pdata pm8901_vreg_init[] = {
-	PM8901_VREG_INIT_VS(USB_OTG, 1),
-	PM8901_VREG_INIT_VS(HDMI_MVS, 0),
+#define PM8901_VREG_INIT_VS(_id) \
+	PM8901_VREG_INIT(_id, 0, 0, REGULATOR_MODE_NORMAL, \
+			REGULATOR_CHANGE_STATUS, 0, 0, 0)
+
+static struct pm8901_vreg_pdata pm8901_vreg_init_pdata[PM8901_VREG_MAX] = {
+	PM8901_VREG_INIT_MPP(MPP0, 1),
+
+	PM8901_VREG_INIT_VS(USB_OTG),
+	PM8901_VREG_INIT_VS(HDMI_MVS),
 };
 
-static struct pm8xxx_misc_platform_data pm8901_misc_pdata = {
-	.priority		= 1,
+#define PM8901_VREG(_id) { \
+	.name = "pm8901-regulator", \
+	.id = _id, \
+	.platform_data = &pm8901_vreg_init_pdata[_id], \
+	.pdata_size = sizeof(pm8901_vreg_init_pdata[_id]), \
+}
+
+static struct mfd_cell pm8901_subdevs[] = {
+	{	.name = "pm8901-mpp",
+		.id		= -1,
+		.platform_data	= &pm8901_mpp_data,
+		.pdata_size      = sizeof(pm8901_mpp_data),
+	},
+	{	.name = "pm8901-tm",
+		.id		= -1,
+		.num_resources  = ARRAY_SIZE(pm8901_temp_alarm),
+		.resources      = pm8901_temp_alarm,
+	},
+	PM8901_VREG(PM8901_VREG_ID_MPP0),
+	PM8901_VREG(PM8901_VREG_ID_USB_OTG),
+	PM8901_VREG(PM8901_VREG_ID_HDMI_MVS),
 };
 
-static struct pm8xxx_irq_platform_data pm8901_irq_pdata = {
-	.irq_base		= PM8901_IRQ_BASE,
-	.devirq			= MSM_GPIO_TO_INT(PM8901_GPIO_INT),
-	.irq_trigger_flag	= IRQF_TRIGGER_LOW,
-};
-
-static struct pm8xxx_mpp_platform_data pm8901_mpp_pdata = {
-	.mpp_base		= PM8901_MPP_PM_TO_SYS(0),
-};
-
+#ifdef CONFIG_MSM_SSBI
 static struct pm8901_platform_data pm8901_platform_data = {
-	.irq_pdata		= &pm8901_irq_pdata,
-	.mpp_pdata		= &pm8901_mpp_pdata,
-	.regulator_pdatas	= pm8901_vreg_init,
-	.num_regulators		= ARRAY_SIZE(pm8901_vreg_init),
-	.misc_pdata		= &pm8901_misc_pdata,
+        .irq_base = PM8901_IRQ_BASE,
+        .irq = MSM_GPIO_TO_INT(PM8901_GPIO_INT),
+        .num_subdevs = ARRAY_SIZE(pm8901_subdevs),
+        .sub_devices = pm8901_subdevs,
+        .irq_trigger_flags = IRQF_TRIGGER_LOW,
 };
-
 static struct msm_ssbi_platform_data msm8x60_ssbi_pm8901_pdata __devinitdata = {
 	.controller_type = MSM_SBI_CTRL_PMIC_ARBITER,
 	.slave	= {
-		.name = "pm8901-core",
+		.name			= "pm8901-core",
+		.platform_data		= &pm8901_platform_data,
+	},
+};
+#else
+static struct pm8901_platform_data pm8901_platform_data = {
+	.irq_base = PM8901_IRQ_BASE,
+	.num_subdevs = ARRAY_SIZE(pm8901_subdevs),
+	.sub_devices = pm8901_subdevs,
+	.irq_trigger_flags = IRQF_TRIGGER_LOW,
+};
+
+static struct i2c_board_info pm8901_boardinfo[] __initdata = {
+	{
+		I2C_BOARD_INFO("pm8901-core", 0x55),
+		.irq = MSM_GPIO_TO_INT(PM8901_GPIO_INT),
 		.platform_data = &pm8901_platform_data,
 	},
 };
 #endif
 
-#ifdef CONFIG_INPUT_ISL29028
+#endif /* CONFIG_PMIC8901 */
 static int isl29028_power(int pwr_device, uint8_t enable)
 {
 	return 0;
@@ -3355,7 +3463,6 @@ static struct i2c_board_info i2c_isl29028_devices[] = {
 		.irq = PM8058_GPIO_IRQ(PM8058_IRQ_BASE, PYRAMID_PLS_INT),
 	},
 };
-#endif
 
 #ifdef CONFIG_INPUT_ISL29029
 static int isl29029_power(int pwr_device, uint8_t enable)
@@ -4344,7 +4451,7 @@ static void __init msm8x60_init(struct msm_board_data *board_data)
 
 	raw_speed_bin = readl(QFPROM_SPEED_BIN_ADDR);
 	speed_bin = raw_speed_bin & 0xF;
-
+msm_tsens_early_init(&pyr_tsens_pdata);
 	pmic_reset_irq = PM8058_IRQ_BASE + PM8058_RESOUT_IRQ;
 
 	BUG_ON(msm_rpm_init(&msm8660_rpm_data));

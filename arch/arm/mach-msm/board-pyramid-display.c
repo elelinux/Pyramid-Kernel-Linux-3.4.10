@@ -23,7 +23,6 @@
 #include <mach/panel_id.h>
 #include <mach/msm_bus_board.h>
 #include <linux/bootmem.h>
-#include <linux/mfd/pmic8058.h>
 #include <linux/pwm.h>
 #include <linux/pmic8058-pwm.h>
 #include <mach/debug_display.h>
@@ -87,13 +86,15 @@ static struct platform_device msm_fb_device = {
 
 void __init pyramid_allocate_fb_region(void)
 {
+	void *addr;
 	unsigned long size;
 
 	size = MSM_FB_SIZE;
-	msm_fb_resources[0].start = MSM_FB_BASE;
+	addr = alloc_bootmem_align(size, 0x1000);
+	msm_fb_resources[0].start = __pa(addr);
 	msm_fb_resources[0].end = msm_fb_resources[0].start + size - 1;
-	pr_info("allocating %lu bytes at 0x%p (0x%lx physical) for fb\n",
-		size, __va(MSM_FB_BASE), (unsigned long) MSM_FB_BASE);
+	pr_info("allocating %lu bytes at %p (%lx physical) for fb\n",
+			size, addr, __pa(addr));
 }
 
 #ifdef CONFIG_MSM_BUS_SCALING
@@ -831,7 +832,7 @@ int pyramid_mdp_gamma(void)
 
 static struct msm_panel_common_pdata mdp_pdata = {
 	.gpio = GPIO_LCD_TE,
-	.mdp_max_clk = 266667000,
+	.mdp_max_clk = 200000000,
 	.mdp_max_bw = 2000000000,
 	.mdp_bw_ab_factor = 115,
 	.mdp_bw_ib_factor = 150,
@@ -876,136 +877,9 @@ static struct platform_device wfd_device = {
 };
 #endif
 
-static int first_init = 1;
-
-static int mipi_dsi_panel_power(const int on)
-{
-	static bool dsi_power_on = false;
-	static struct regulator *l1_3v;
-	static struct regulator *lvs1_1v8;
-	static struct regulator *l4_1v8;
-	int rc;
-
-	if (!dsi_power_on) {
-		l1_3v = regulator_get(NULL, "8901_l1");
-		if (IS_ERR_OR_NULL(l1_3v)) {
-			PR_DISP_ERR("%s: unable to get 8901_l1\n", __func__);
-			return -ENODEV;
-		}
-		if (system_rev >= 1) {
-			l4_1v8 = regulator_get(NULL, "8901_l4");
-			if (IS_ERR_OR_NULL(l4_1v8)) {
-				PR_DISP_ERR("%s: unable to get 8901_l4\n", __func__);
-				return -ENODEV;
-			}
-		} else {
-			lvs1_1v8 = regulator_get(NULL, "8901_lvs1");
-			if (IS_ERR_OR_NULL(lvs1_1v8)) {
-				PR_DISP_ERR("%s: unable to get 8901_lvs1\n", __func__);
-				return -ENODEV;
-			}
-		}
-
-		rc = regulator_set_voltage(l1_3v, 3100000, 3100000);
-		if (rc) {
-			PR_DISP_ERR("%s: error setting l1_3v voltage\n", __func__);
-			return -EINVAL;
-		}
-
-		if (system_rev >= 1) {
-			rc = regulator_set_voltage(l4_1v8, 1800000, 1800000);
-			if (rc) {
-				PR_DISP_ERR("%s: error setting l4_1v8 voltage\n", __func__);
-				return -EINVAL;
-			}
-		}
-
-		rc = gpio_request(GPIO_LCM_RST_N,
-				"LCM_RST_N");
-		if (rc) {
-			printk(KERN_ERR "%s:LCM gpio %d request"
-					"failed\n", __func__,
-					GPIO_LCM_RST_N);
-			return -EINVAL;
-		}
-
-		dsi_power_on = true;
-	}
-
-	if (!l1_3v || IS_ERR(l1_3v)) {
-		PR_DISP_ERR("%s: l1_3v is not initialized\n", __func__);
-		return -ENODEV;
-	}
-
-	if (system_rev >= 1) {
-		if (!l4_1v8 || IS_ERR(l4_1v8)) {
-			PR_DISP_ERR("%s: l4_1v8 is not initialized\n", __func__);
-			return -ENODEV;
-		}
-	} else {
-		if (!lvs1_1v8 || IS_ERR(lvs1_1v8)) {
-			PR_DISP_ERR("%s: lvs1_1v8 is not initialized\n", __func__);
-			return -ENODEV;
-		}
-	}
-
-	if (on) {
-		if (regulator_enable(l1_3v)) {
-			PR_DISP_ERR("%s: Unable to enable the regulator:"
-					" l1_3v\n", __func__);
-			return -ENODEV;
-		}
-		hr_msleep(5);
-
-		if (system_rev >= 1) {
-			if (regulator_enable(l4_1v8)) {
-				PR_DISP_ERR("%s: Unable to enable the regulator:"
-						" l4_1v8\n", __func__);
-				return -ENODEV;
-			}
-		} else {
-			if (regulator_enable(lvs1_1v8)) {
-				PR_DISP_ERR("%s: Unable to enable the regulator:"
-						" lvs1_1v8\n", __func__);
-				return -ENODEV;
-			}
-		}
-
-		if (!first_init) {
-			hr_msleep(10);
-			gpio_set_value(GPIO_LCM_RST_N, 1);
-			hr_msleep(1);
-			gpio_set_value(GPIO_LCM_RST_N, 0);
-			hr_msleep(1);
-			gpio_set_value(GPIO_LCM_RST_N, 1);
-			hr_msleep(20);
-		}
-	} else {
-		gpio_set_value(GPIO_LCM_RST_N, 0);
-		hr_msleep(5);
-		if (system_rev >= 1) {
-			if (regulator_disable(l4_1v8)) {
-				PR_DISP_ERR("%s: Unable to enable the regulator:"
-						" l4_1v8\n", __func__);
-				return -ENODEV;
-			}
-		} else {
-			if (regulator_disable(lvs1_1v8)) {
-				PR_DISP_ERR("%s: Unable to enable the regulator:"
-						" lvs1_1v8\n", __func__);
-				return -ENODEV;
-			}
-		}
-		hr_msleep(5);
-		if (regulator_disable(l1_3v)) {
-			PR_DISP_ERR("%s: Unable to enable the regulator:"
-					" l1_3v\n", __func__);
-			return -ENODEV;
-		}
-	}
-
-	return 0;
-}
+/*
+ * Regulator initialization moved to mipi_dsi
+ */
 
 static char mipi_dsi_splash_is_enabled(void)
 {
@@ -1014,7 +888,6 @@ static char mipi_dsi_splash_is_enabled(void)
 
 static struct mipi_dsi_platform_data mipi_dsi_pdata = {
 	.vsync_gpio = GPIO_LCD_TE,
-	.dsi_power_save = mipi_dsi_panel_power,
 	.splash_is_enabled = mipi_dsi_splash_is_enabled,
 };
 
@@ -1623,16 +1496,8 @@ static int __devinit pyramid_lcd_probe(struct platform_device *pdev)
 	return 0;
 }
 
-static int mipi_dsi_panel_power(int on);
-
-static void pyramid_lcd_shutdown(struct platform_device *pdev)
-{
-	mipi_dsi_panel_power(0);
-}
-
 static struct platform_driver this_driver = {
 	.probe  = pyramid_lcd_probe,
-	.shutdown = pyramid_lcd_shutdown,
 	.driver = {
 		.name   = "mipi_novatek",
 	},
