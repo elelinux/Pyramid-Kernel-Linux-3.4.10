@@ -43,6 +43,7 @@ allowed_warnings = set([
     "audio_utils_aio.c:1160",
     "alignment.c:327",
     "inet_hashtables.h:283",
+    "main.c:717",
     "mmu.c:602",
     "msm_fb.c:2205",
     "return_address.c:62",
