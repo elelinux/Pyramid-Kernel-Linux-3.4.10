@@ -45,6 +45,7 @@ allowed_warnings = set([
     "inet_hashtables.h:283",
     "main.c:717",
     "mmu.c:602",
+    "msm_fb.c:2195" ,
     "msm_fb.c:2205",
     "return_address.c:62",
     "swab.h:40",
