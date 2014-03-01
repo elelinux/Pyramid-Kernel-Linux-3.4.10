@@ -134,9 +134,13 @@ void  mdp4_overlay_free_base_pipe(struct msm_fb_data_type *mfd)
 			mdp4_dsi_cmd_free_base_pipe(mfd);
 		else if (ctrl->panel_mode & MDP4_PANEL_LCDC)
 			mdp4_lcdc_free_base_pipe(mfd);
-//	} else if (hdmi_prim_display || mfd->index == 1) {
-//		mdp4_dtv_free_base_pipe(mfd);
+#ifdef CONFIG_FB_MSM_DTV
+	} else if (hdmi_prim_display || mfd->index == 1) {
+		mdp4_dtv_free_base_pipe(mfd);
 	}
+#else
+	}
+#endif
 }
 
 static struct ion_client *display_iclient;
@@ -1050,8 +1054,7 @@ void mdp4_overlay_vg_setup(struct mdp4_overlay_pipe *pipe)
 
 	/* TILE frame size */
 	if (pipe->frame_format != MDP4_FRAME_FORMAT_LINEAR) {
-		if ((ctrl->panel_mode & MDP4_PANEL_DSI_CMD && pipe->mixer_num == 0) ||
-			(ctrl->panel_mode & MDP4_PANEL_WRITEBACK && pipe->mixer_num == 2))
+		if (ctrl->panel_mode & MDP4_PANEL_DSI_CMD)
 			outpdw(vg_base + 0x0048, frame_size);
 		else
 			pipe->frame_size = frame_size;
@@ -2840,16 +2843,13 @@ static int mdp4_calc_req_mdp_clk(struct msm_fb_data_type *mfd,
 	pr_debug("%s: the right %d shifted xscale is %d.\n",
 		 __func__, shift, xscale);
 
-	if (src_h > dst_h) {
-		yscale = src_h;
-		yscale <<= shift;
-		yscale /= dst_h;
-	} else {		/* upscale */
-		yscale = dst_h;
-		yscale <<= shift;
-		yscale /= src_h;
-	}
+	if (src_h > dst_h)
+	        yscale = src_h;
+	else
+                yscale = dst_h;
 
+        yscale <<= shift;
+        yscale /= dst_h;
 	yscale *= src_w;
 	yscale /= hsync;
 

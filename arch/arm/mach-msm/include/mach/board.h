@@ -469,7 +469,6 @@ struct msm_panel_common_pdata {
 	u32 splash_screen_addr;
 	u32 splash_screen_size;
 	char mdp_iommu_split_domain;
-	u32 avtimer_phy;
 	int (*mdp_gamma)(void);
 };
 
@@ -506,7 +505,6 @@ struct mipi_dsi_platform_data {
 	int (*get_lane_config)(void);
 	char (*splash_is_enabled)(void);
 	int target_type;
-	int (*deferred_reset_driver_ic)(void);
 };
 
 enum mipi_dsi_3d_ctrl {
@@ -521,11 +519,6 @@ struct mipi_dsi_phy_ctrl {
 	uint32_t ctrl[4];
 	uint32_t strength[4];
 	uint32_t pll[21];
-};
-
-struct mipi_dsi_reg_set {
-	uint32_t reg;
-	uint32_t value;
 };
 
 struct mipi_dsi_panel_platform_data {
@@ -568,6 +561,7 @@ struct msm_hdmi_platform_data {
 	int (*gpio_config)(int on);
 	int (*init_irq)(void);
 	bool (*check_hdcp_hw_support)(void);
+	bool (*source)(void);
 	bool is_mhl_enabled;
 };
 
@@ -620,7 +614,6 @@ struct msm_i2c_ssbi_platform_data {
 };
 
 struct msm_vidc_platform_data {
-	int memtype;
 	u32 enable_ion;
 	int disable_dmx;
 	int disable_fullhd;
@@ -773,4 +766,3 @@ extern int dying_processors_read_proc(char *page, char **start, off_t off,
 
 extern int get_partition_num_by_name(char *name);
 #endif
-
